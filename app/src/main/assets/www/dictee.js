@@ -361,11 +361,14 @@
       const st = document.createElement('style'); st.id = 'dk-style';
       st.textContent = `
 .dk-root{--dk-bg:#fafbfb;--dk-fg:#162023;--dk-muted:#5a696c;--dk-line:#d2d9da;--dk-accent:#1e6a68;--dk-accent-fg:#fff;--dk-rec:#d1372b;--dk-field:#eceff0}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .dk-root{--dk-bg:#172023;--dk-fg:#e4ebea;--dk-muted:#8fa1a2;--dk-line:#273437;--dk-accent:#5dbdb3;--dk-accent-fg:#0d1a1a;--dk-rec:#ff5b4e;--dk-field:#101618}}
-:root[data-theme="dark"] .dk-root{--dk-bg:#172023;--dk-fg:#e4ebea;--dk-muted:#8fa1a2;--dk-line:#273437;--dk-accent:#5dbdb3;--dk-accent-fg:#0d1a1a;--dk-rec:#ff5b4e;--dk-field:#101618}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]):not(.dk-light).dk-root{--dk-bg:#172023;--dk-fg:#e4ebea;--dk-muted:#8fa1a2;--dk-line:#273437;--dk-accent:#5dbdb3;--dk-accent-fg:#0d1a1a;--dk-rec:#ff5b4e;--dk-field:#101618}}
+:root[data-theme="dark"]:not(.dk-light).dk-root{--dk-bg:#172023;--dk-fg:#e4ebea;--dk-muted:#8fa1a2;--dk-line:#273437;--dk-accent:#5dbdb3;--dk-accent-fg:#0d1a1a;--dk-rec:#ff5b4e;--dk-field:#101618}
 .dk-wrap{position:relative;display:block}
 .dk-wrap>textarea,.dk-wrap>input{padding-right:52px!important;box-sizing:border-box}
 .dk-mic{position:absolute;right:6px;bottom:6px;width:40px;height:40px;border-radius:50%;border:1px solid var(--dk-line);background:var(--dk-bg);color:var(--dk-fg);display:grid;place-items:center;cursor:pointer;padding:0;z-index:1}
+.dk-wrap:not(.dk-line) .dk-mic{right:16px;bottom:8px}
+.dk-wrap.dk-line .dk-mic{top:50%;bottom:auto;margin-top:-15px;width:30px;height:30px;right:4px}
+.dk-wrap.dk-line>input{padding-right:40px!important}
 .dk-mic svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8}
 .dk-mic:focus-visible{outline:2px solid var(--dk-accent);outline-offset:2px}
 .dk-mic.dk-on{background:var(--dk-rec);border-color:var(--dk-rec);color:#fff;animation:dk-pulse 1.4s ease-in-out infinite}
@@ -390,6 +393,7 @@
 @media (prefers-reduced-motion:reduce){.dk-mic,.dk-mic::after{animation:none!important}}`;
       document.head.append(st);
       document.documentElement.classList.add('dk-root');
+      if (opts.darkMode === false) document.documentElement.classList.add('dk-light');
     }
     let toastEl = null, toastT = null;
     function toast(msg) {
@@ -409,7 +413,7 @@
       if (!el || el.dataset.dkAttached) return null;
       injectStyle();
       el.dataset.dkAttached = '1';
-      const wrap = document.createElement('span'); wrap.className = 'dk-wrap';
+      const wrap = document.createElement('span'); wrap.className = 'dk-wrap' + (el.tagName === 'INPUT' ? ' dk-line' : '');
       el.parentNode.insertBefore(wrap, el); wrap.append(el);
       const btn = document.createElement('button');
       btn.type = 'button'; btn.className = 'dk-mic'; btn.innerHTML = MIC_SVG;
