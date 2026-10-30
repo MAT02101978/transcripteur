@@ -18,6 +18,8 @@ async function lib() {
   T.env.allowLocalModels = false;
   T.env.useBrowserCache = true; // modèle gardé en cache après le 1er téléchargement
   if (LIBBASE) T.env.backends.onnx.wasm.wasmPaths = LIBBASE;
+  // Plusieurs cœurs si la page est isolée (en-têtes COOP/COEP) ; sinon un seul
+  T.env.backends.onnx.wasm.numThreads = self.crossOriginIsolated ? Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 1)) : 1;
   return T;
 }
 
@@ -76,10 +78,11 @@ self.onmessage = async (e) => {
   try {
     if (m.type === 'load') {
       await load(m.model, m.device, m.big);
-      postMessage({ type: 'ready' });
+      postMessage({ type: 'ready', threads: T.env.backends.onnx.wasm.numThreads, isolated: !!self.crossOriginIsolated });
     } else if (m.type === 'run') {
+      const t0 = performance.now(), sec = m.audio.length / 16000;
       const text = await transcribe(m.audio, m.lang, m.lexicon, m.previous);
-      postMessage({ type: 'result', id: m.id, text });
+      postMessage({ type: 'result', id: m.id, text, ms: Math.round(performance.now() - t0), sec });
     } else if (m.type === 'count') {
       postMessage({ type: 'count', id: m.id, n: tok ? enc(m.text).length : -1 });
     }

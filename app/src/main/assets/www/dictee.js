@@ -104,7 +104,7 @@
     const libBase = opts.libBase ? new URL(opts.libBase, base).href : (native ? new URL('lib/', base).href : '');
     const wurl = new URL('worker.js', base); if (libBase) wurl.searchParams.set('lib', libBase);
     const worker = new Worker(wurl.href, { type: 'module' });
-    const engine = { state: 'idle', device: null, error: '' };
+    const engine = { state: 'idle', device: null, error: '', threads: 0, lastMs: 0, lastSec: 0 };
     const files = new Map();
     const pending = new Map();
     let loadCb = null, loadPromise = null, seq = 0, busy = 0, fileJob = null;
@@ -115,12 +115,14 @@
         const p = m.p;
         if (p.status === 'progress' && p.file) { files.set(p.file, { loaded: p.loaded || 0, total: p.total || 0 }); emitStatus(); }
       } else if (m.type === 'ready') {
+        engine.threads = m.threads || 1;
         if (loadCb) { loadCb.res(); loadCb = null; }
       } else if (m.type === 'count') {
         if (pending.has(m.id)) { pending.get(m.id).res(m.n); pending.delete(m.id); }
       } else if (m.type === 'result' || m.type === 'error') {
         if (m.id != null && pending.has(m.id)) {
           const r = pending.get(m.id); pending.delete(m.id);
+          if (m.type === 'result' && m.ms) { engine.lastMs = m.ms; engine.lastSec = m.sec; }
           m.type === 'result' ? r.res(m.text) : r.rej(new Error(m.message));
         } else if (m.type === 'error' && loadCb) { loadCb.rej(new Error(m.message)); loadCb = null; }
       }
@@ -137,7 +139,7 @@
         model: settings.model, modelSize: MODELS[settings.model].size,
         downloadPct: t ? Math.round(l / t * 100) : 0,
         busy, fileJob: fileJob ? { done: fileJob.done, total: fileJob.total } : null,
-        recording: !!mic,
+        recording: !!mic, threads: engine.threads, lastMs: engine.lastMs, lastSec: engine.lastSec,
       };
     }
     function emitStatus() { emit('status', status()); }
@@ -580,7 +582,8 @@
       dlg._updCount();
       hasWebGPU().then((gpu) => {
         $('dkDevInfo').textContent = (gpu ? 'WebGPU disponible sur cet appareil.' : 'WebGPU indisponible : le calcul se fera sur le processeur, plus lentement.') +
-          (engine.device ? ` En cours : ${engine.device === 'webgpu' ? 'GPU' : 'processeur'}.` : '');
+          (engine.device ? ` En cours : ${engine.device === 'webgpu' ? 'GPU' : `processeur, ${engine.threads} cœur${engine.threads > 1 ? 's' : ''}`}.` : '') +
+          (engine.lastMs ? ` Dernier passage : ${(engine.lastMs / 1000).toFixed(1)} s de calcul pour ${engine.lastSec.toFixed(1)} s de parole.` : '');
       });
       dlg.showModal();
     }
