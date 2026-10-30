@@ -105,7 +105,10 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 .field{display:flex;flex-direction:column;gap:6px}
 .field label,.field .lbl{font-size:13px;font-weight:700}
 .field small{color:var(--muted);font-size:12px;line-height:1.4}
-.field select{border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:10px;min-height:44px}
+.field select,.field textarea{border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:10px;min-height:44px;width:100%}
+.field textarea{font:14px/1.45 var(--read);resize:vertical}
+.btn.small{align-self:flex-start;padding:6px 10px;min-height:36px;font-size:13px}
+dialog{max-height:calc(100dvh - 32px);overflow-y:auto}
 .check{display:flex;align-items:center;gap:10px;font-size:14px}
 .check input{width:20px;height:20px;accent-color:var(--accent)}
 .sheet-foot{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
@@ -170,22 +173,32 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
     <div class="field">
       <label for="setModel">Modèle Whisper</label>
       <select id="setModel">
-        <option value="tiny">Rapide · tiny · ≈ 40 Mo</option>
-        <option value="base">Équilibré · base · ≈ 80 Mo</option>
+        <option value="base">Rapide · base · ≈ 80 Mo</option>
         <option value="small">Précis · small · ≈ 250 Mo</option>
+        <option value="turbo">Très précis · large-v3-turbo · ≈ 1 à 1,4 Go</option>
       </select>
-      <small>Téléchargé une seule fois, puis gardé sur le téléphone. « Précis » transcrit nettement mieux le français mais demande un téléphone récent.</small>
+      <small>Téléchargé une seule fois, puis gardé sur le téléphone. « Très précis » est le meilleur pour le vocabulaire médical, mais il lui faut un téléphone récent avec GPU ; sur processeur seul, il est très lent.</small>
     </div>
     <div class="field">
       <label for="setLang">Langue parlée</label>
       <select id="setLang">
-        <option value="french">Français</option>
-        <option value="english">Anglais</option>
-        <option value="spanish">Espagnol</option>
-        <option value="german">Allemand</option>
-        <option value="italian">Italien</option>
-        <option value="">Détection automatique</option>
+        <option value="fr">Français</option>
+        <option value="en">Anglais</option>
+        <option value="es">Espagnol</option>
+        <option value="de">Allemand</option>
+        <option value="it">Italien</option>
       </select>
+    </div>
+    <div class="field">
+      <label for="setLexicon">Vocabulaire à reconnaître</label>
+      <textarea id="setLexicon" rows="6"></textarea>
+      <small><span id="lexCount"></span> Le modèle lit ce texte avant chaque passage et privilégie ces orthographes. Gardez des termes séparés par des virgules, avec une phrase de contexte au début. Seuls les ~150 premiers jetons sont utilisés.</small>
+      <button class="btn small" type="button" id="lexReset">Rétablir le vocabulaire podologique</button>
+    </div>
+    <div class="field">
+      <label for="setCorr">Corrections automatiques</label>
+      <textarea id="setCorr" rows="4" placeholder="hallux val gus = hallux valgus&#10;ony cryptose = onychocryptose&#10;Dr Martin = Dr Martineau"></textarea>
+      <small>Une règle par ligne, « entendu = écrit ». Appliquées à chaque nouveau passage, sans tenir compte des majuscules.</small>
     </div>
     <div class="field">
       <label for="setDevice">Calcul</label>
@@ -215,17 +228,22 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 const $ = (s) => document.querySelector(s);
 const SR = 16000;
 const MODELS = {
-  tiny:  { id: 'onnx-community/whisper-tiny',  size: '≈ 40 Mo' },
   base:  { id: 'onnx-community/whisper-base',  size: '≈ 80 Mo' },
   small: { id: 'onnx-community/whisper-small', size: '≈ 250 Mo' },
+  turbo: { id: 'onnx-community/whisper-large-v3-turbo', size: '≈ 1 à 1,4 Go', big: true },
 };
+const DEFAULT_LEXICON = "Consultation de pédicurie-podologie. Hallux valgus, hallux rigidus, quintus varus, métatarsalgie, névrome de Morton, aponévrosite plantaire, épine calcanéenne, tendinopathie achilléenne, onychocryptose, onychomycose, onychogryphose, hyperkératose, durillon, verrue plantaire, orteils en griffe, pied creux, pied plat valgus, arrière-pied varus, sous-talienne, métatarso-phalangienne, orthèses plantaires, élément rétro-capital, barre rétro-capitale, coin supinateur, talonnette, orthoplastie, stabilométrie, posturologie, neuropathie diabétique, monofilament.";
+const LANGS = { french: 'fr', english: 'en', spanish: 'es', german: 'de', italian: 'it' };
 
 /* ---------- Stockage local ---------- */
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (_) { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (_) { return false; } },
 };
-const settings = Object.assign({ model: 'base', lang: 'french', device: 'auto', tc: true, tcExport: false }, store.get('tx.settings', {}));
+const settings = Object.assign({ model: 'small', lang: 'fr', device: 'auto', tc: true, tcExport: false, lexicon: DEFAULT_LEXICON, corrections: '' }, store.get('tx.settings', {}));
+if (LANGS[settings.lang]) settings.lang = LANGS[settings.lang];
+if (!settings.lang) settings.lang = 'fr';
+if (!MODELS[settings.model]) settings.model = 'small';
 let sessions = store.get('tx.sessions', []);
 let shownId = sessions[0] ? sessions[0].id : null;
 function saveSettings() { store.set('tx.settings', settings); }
@@ -273,6 +291,8 @@ worker.onmessage = (e) => {
     if (p.status === 'progress' && p.file) { files.set(p.file, { loaded: p.loaded || 0, total: p.total || 0 }); updateStatus(); }
   } else if (m.type === 'ready') {
     if (loadCb) { loadCb.res(); loadCb = null; }
+  } else if (m.type === 'count') {
+    if (pendingReq.has(m.id)) { pendingReq.get(m.id).res(m.n); pendingReq.delete(m.id); }
   } else if (m.type === 'result' || m.type === 'error') {
     if (m.id != null && pendingReq.has(m.id)) {
       const r = pendingReq.get(m.id); pendingReq.delete(m.id);
@@ -293,7 +313,7 @@ async function pickDevice() {
 function workerLoad(device) {
   return new Promise((res, rej) => {
     loadCb = { res, rej }; files.clear();
-    worker.postMessage({ type: 'load', model: MODELS[settings.model].id, device });
+    worker.postMessage({ type: 'load', model: MODELS[settings.model].id, device, big: !!MODELS[settings.model].big });
   });
 }
 function loadModel() {
@@ -315,11 +335,39 @@ function loadModel() {
 }
 function resetModel() { loadPromise = null; engine.state = 'idle'; engine.device = null; updateStatus(); }
 
-function runWhisper(audio) {
+function runWhisper(audio, previous) {
   return new Promise((res, rej) => {
     const id = ++reqSeq; pendingReq.set(id, { res, rej });
-    worker.postMessage({ type: 'run', id, audio, lang: settings.lang || null }, [audio.buffer]);
+    worker.postMessage({ type: 'run', id, audio, lang: settings.lang, lexicon: settings.lexicon || '', previous: previous || '' }, [audio.buffer]);
   });
+}
+function countTokens(text) {
+  if (engine.state !== 'ready') return Promise.resolve(-1);
+  return new Promise((res, rej) => {
+    const id = ++reqSeq; pendingReq.set(id, { res, rej });
+    worker.postMessage({ type: 'count', id, text });
+  });
+}
+
+/* ---------- Corrections automatiques (« entendu = écrit ») ---------- */
+function parseCorrections(src) {
+  return (src || '').split('\n').map((l) => l.split(/\s*(?:=|→|->)\s*/)).filter((p) => p.length === 2 && p[0].trim())
+    .map(([a, b]) => ({ re: new RegExp('(?<![\\p{L}\\p{N}])' + a.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+') + '(?![\\p{L}\\p{N}])', 'giu'), to: b.trim() }));
+}
+let corrections = parseCorrections(settings.corrections);
+function applyCorrections(t) {
+  for (const c of corrections) t = t.replace(c.re, (m) => (m[0] !== m[0].toLowerCase() && c.to[0] === c.to[0].toLowerCase()) ? c.to[0].toUpperCase() + c.to.slice(1) : c.to);
+  return t;
+}
+
+// Whisper recopie parfois le lexique quand le passage est presque muet
+const norm = (s) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+function echoesLexicon(t) {
+  const lex = norm(settings.lexicon || ''); if (!lex) return false;
+  const n = norm(t);
+  if (n.length > 12 && lex.includes(n)) return true;
+  const terms = (settings.lexicon || '').split(/[,.;]/).map(norm).filter((x) => x.length > 4);
+  return terms.filter((x) => n.includes(x)).length >= 6 && n.split(' ').length < terms.length * 3;
 }
 
 // Phrases fantômes que Whisper produit sur du silence ou du bruit
@@ -328,7 +376,8 @@ function cleanText(t) {
   t = (t || '').replace(/\s+/g, ' ').trim();
   if (!t || /^[\s.,!?…\-–—♪*]*$/.test(t)) return '';
   if (t.length < 90 && HALLU.some((r) => r.test(t))) return '';
-  return t;
+  if (echoesLexicon(t)) return '';
+  return applyCorrections(t);
 }
 
 /* ---------- File d'attente de transcription ---------- */
@@ -342,7 +391,8 @@ function enqueue(sess, seg) {
   queue = queue.then(async () => {
     try {
       await loadModel();
-      const text = cleanText(await runWhisper(seg.audio));
+      const last = sess.segments[sess.segments.length - 1];
+      const text = cleanText(await runWhisper(seg.audio, last ? last.text : ''));
       if (text) { sess.segments.push({ t: seg.t, text }); saveSessions(); }
     } catch (err) {
       toast('Échec sur un passage : ' + err.message);
@@ -403,7 +453,8 @@ function onPcm(c) {
   if (rms < thr) r.silentMs += c.length / SR * 1000; else { r.silentMs = 0; r.voiced = true; }
   waveHist.push(rms);
   const dur = r.len / SR;
-  if (dur >= 3 && r.silentMs >= 650) flush(false);
+  // Passages plus longs = plus de contexte pour le modèle = meilleure précision
+  if (dur >= 5 && r.silentMs >= 700) flush(false);
   else if (dur >= 25) flush(true);
 }
 
@@ -634,6 +685,8 @@ const dlg = $('#settings');
 $('#openSettings').addEventListener('click', async () => {
   $('#setModel').value = settings.model; $('#setLang').value = settings.lang; $('#setDevice').value = settings.device;
   $('#setTc').checked = settings.tc; $('#setTcExport').checked = settings.tcExport;
+  $('#setLexicon').value = settings.lexicon; $('#setCorr').value = settings.corrections;
+  updateLexCount();
   let gpu = false; try { gpu = !!(navigator.gpu && await navigator.gpu.requestAdapter()); } catch (_) {}
   $('#deviceInfo').textContent = (gpu ? 'WebGPU disponible sur ce téléphone.' : "WebGPU indisponible : le calcul se fera sur le processeur, plus lentement.") +
     (engine.device ? ` En cours : ${engine.device === 'webgpu' ? 'GPU' : 'processeur'}.` : '');
@@ -648,6 +701,19 @@ $('#setDevice').addEventListener('change', (e) => {
   settings.device = e.target.value; saveSettings(); resetModel();
 });
 $('#setLang').addEventListener('change', (e) => { settings.lang = e.target.value; saveSettings(); });
+let lexTimer = null;
+async function updateLexCount() {
+  const n = await countTokens(settings.lexicon);
+  const el = $('#lexCount');
+  if (n < 0) el.textContent = `${settings.lexicon.length} caractères.`;
+  else el.textContent = n > 150 ? `${n} jetons : la fin sera ignorée.` : `${n} / 150 jetons.`;
+}
+$('#setLexicon').addEventListener('input', (e) => {
+  settings.lexicon = e.target.value; saveSettings();
+  clearTimeout(lexTimer); lexTimer = setTimeout(updateLexCount, 400);
+});
+$('#lexReset').addEventListener('click', () => { settings.lexicon = DEFAULT_LEXICON; $('#setLexicon').value = DEFAULT_LEXICON; saveSettings(); updateLexCount(); });
+$('#setCorr').addEventListener('input', (e) => { settings.corrections = e.target.value; corrections = parseCorrections(e.target.value); saveSettings(); });
 $('#setTc').addEventListener('change', (e) => { settings.tc = e.target.checked; saveSettings(); renderDoc(); });
 $('#setTcExport').addEventListener('change', (e) => { settings.tcExport = e.target.checked; saveSettings(); });
 let clearArmed = false;
