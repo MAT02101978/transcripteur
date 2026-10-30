@@ -7,8 +7,8 @@ const LIB = LIBBASE
   : 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.6';
 
 const MAX_TOTAL = 448;   // longueur max du décodeur Whisper
-const MAX_LEX = 150;     // jetons réservés au lexique
-const MAX_PREV = 60;     // jetons du texte précédent (continuité)
+const MAX_LEX = 190;     // jetons réservés au lexique (Whisper accepte ~224 jetons d'amorce)
+const MAX_PREV = 30;     // jetons du texte précédent (continuité)
 
 let T = null, tok = null, proc = null, model = null, ids = null, loadedKey = null;
 

@@ -18,7 +18,9 @@
     small: { id: 'onnx-community/whisper-small', size: '≈ 250 Mo', label: 'Précis · small' },
     turbo: { id: 'onnx-community/whisper-large-v3-turbo', size: '≈ 1 à 1,4 Go', label: 'Très précis · large-v3-turbo', big: true },
   };
-  const DEFAULT_LEXICON = "Consultation de pédicurie-podologie. Hallux valgus, hallux rigidus, quintus varus, métatarsalgie, névrome de Morton, aponévrosite plantaire, épine calcanéenne, tendinopathie achilléenne, onychocryptose, onychomycose, onychogryphose, hyperkératose, durillon, verrue plantaire, orteils en griffe, pied creux, pied plat valgus, arrière-pied varus, sous-talienne, métatarso-phalangienne, orthèses plantaires, élément rétro-capital, barre rétro-capitale, coin supinateur, talonnette, orthoplastie, stabilométrie, posturologie, neuropathie diabétique, monofilament.";
+  const DEFAULT_LEXICON = "Bilan podologique et postural. Posturale, antéro-postérieure, médio-latérale, stabilométrie, centre de pression, Romberg, bipodal, unipodal, proprioception, hallux valgus, métatarsalgie, névrome de Morton, aponévrosite plantaire, talalgie, tendinopathie achilléenne, onychocryptose, hyperkératose, pied creux, pied plat valgus, arrière-pied varus, orthèses plantaires, élément rétro-capital, coin supinateur, talonnette.";
+  // Ancienne liste par défaut (v1) : remplacée automatiquement si l'utilisateur ne l'a pas modifiée
+  const OLD_DEFAULTS = ["Consultation de pédicurie-podologie. Hallux valgus, hallux rigidus, quintus varus, métatarsalgie, névrome de Morton, aponévrosite plantaire, épine calcanéenne, tendinopathie achilléenne, onychocryptose, onychomycose, onychogryphose, hyperkératose, durillon, verrue plantaire, orteils en griffe, pied creux, pied plat valgus, arrière-pied varus, sous-talienne, métatarso-phalangienne, orthèses plantaires, élément rétro-capital, barre rétro-capitale, coin supinateur, talonnette, orthoplastie, stabilométrie, posturologie, neuropathie diabétique, monofilament."];
   const LEGACY_LANGS = { french: 'fr', english: 'en', spanish: 'es', german: 'de', italian: 'it' };
 
   // Phrases fantômes que Whisper produit sur du silence ou du bruit
@@ -60,6 +62,7 @@
     const saved = store.get(KEY + '.settings', null) || (opts.legacySettingsKey ? store.get(opts.legacySettingsKey, {}) : {});
     const settings = { model: 'small', lang: 'fr', device: 'auto', lexicon: DEFAULT_LEXICON, corrections: '' };
     ['model', 'lang', 'device', 'lexicon', 'corrections'].forEach((k) => { if (saved[k] != null) settings[k] = saved[k]; });
+    if (OLD_DEFAULTS.indexOf(settings.lexicon) >= 0) settings.lexicon = DEFAULT_LEXICON;
     if (LEGACY_LANGS[settings.lang]) settings.lang = LEGACY_LANGS[settings.lang];
     if (!settings.lang) settings.lang = 'fr';
     if (!MODELS[settings.model]) settings.model = 'small';
@@ -484,7 +487,7 @@
     <option value="auto">Automatique (GPU si disponible)</option><option value="webgpu">GPU (WebGPU)</option><option value="wasm">Processeur</option></select>
     <small id="dkDevInfo">—</small></div>
   <div class="dk-field"><label for="dkLex">Vocabulaire à reconnaître</label><textarea id="dkLex" rows="6"></textarea>
-    <small><span id="dkLexCount"></span> Le modèle lit ce texte avant chaque passage et privilégie ces orthographes. Termes séparés par des virgules, avec une phrase de contexte au début. Seuls les ~150 premiers jetons sont utilisés (vocabulaire du champ compris).</small>
+    <small><span id="dkLexCount"></span> Le modèle lit ce texte avant chaque passage et privilégie ces orthographes. Termes séparés par des virgules, avec une phrase de contexte au début. Seuls les ~190 premiers jetons sont utilisés (vocabulaire du champ compris).</small>
     <div class="dk-row"><button class="dk-btn" type="button" id="dkLexReset">Rétablir le vocabulaire podologique</button></div></div>
   <div class="dk-field"><label for="dkCorr">Corrections automatiques</label>
     <textarea id="dkCorr" rows="5" placeholder="hallux val gus = hallux valgus&#10;ony cryptose = onychocryptose"></textarea>
@@ -512,7 +515,7 @@
         let lexT = null;
         const updCount = async () => {
           const n = await countTokens(settings.lexicon);
-          $('dkLexCount').textContent = n < 0 ? `${settings.lexicon.length} caractères.` : (n > 150 ? `${n} jetons : la fin sera ignorée.` : `${n} / 150 jetons.`);
+          $('dkLexCount').textContent = n < 0 ? `${settings.lexicon.length} caractères.` : (n > 190 ? `${n} jetons : la fin sera ignorée.` : `${n} / 190 jetons.`);
         };
         dlg._updCount = updCount;
         $('dkLex').addEventListener('input', (e) => { settings.lexicon = e.target.value; saveSettings(); clearTimeout(lexT); lexT = setTimeout(updCount, 400); });
