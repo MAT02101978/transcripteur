@@ -1,13 +1,14 @@
 // Moteur Whisper exécuté hors du fil principal. Tout reste sur l'appareil.
-// worker.js?local=1 (appli Android) : bibliothèque et moteur WebAssembly embarqués dans l'APK.
-const LOCAL = new URL(self.location.href).searchParams.has('local');
-const LIB = LOCAL
-  ? new URL('lib/transformers.min.js', self.location.href).href
+// Paramètre ?lib=<url> : bibliothèque et moteur WebAssembly servis localement (APK, appli Mac hors ligne).
+// Sans paramètre : bibliothèque chargée depuis le CDN.
+const LIBBASE = new URL(self.location.href).searchParams.get('lib');
+const LIB = LIBBASE
+  ? new URL('transformers.min.js', LIBBASE).href
   : 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.6';
 
 const MAX_TOTAL = 448;   // longueur max du décodeur Whisper
 const MAX_LEX = 150;     // jetons réservés au lexique
-const MAX_PREV = 60;     // jetons de la phrase précédente (continuité)
+const MAX_PREV = 60;     // jetons du texte précédent (continuité)
 
 let T = null, tok = null, proc = null, model = null, ids = null, loadedKey = null;
 
@@ -16,7 +17,7 @@ async function lib() {
   T = await import(LIB);
   T.env.allowLocalModels = false;
   T.env.useBrowserCache = true; // modèle gardé en cache après le 1er téléchargement
-  if (LOCAL) T.env.backends.onnx.wasm.wasmPaths = new URL('lib/', self.location.href).href;
+  if (LIBBASE) T.env.backends.onnx.wasm.wasmPaths = LIBBASE;
   return T;
 }
 
@@ -28,7 +29,7 @@ async function load(modelId, device, big) {
   const key = modelId + '|' + device;
   if (model && loadedKey === key) return;
   if (model && model.dispose) { try { await model.dispose(); } catch (_) {} }
-  model = null;
+  model = null; loadedKey = null;
   await lib();
   let dtype;
   if (device === 'webgpu') {

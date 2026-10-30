@@ -109,12 +109,20 @@ public class MainActivity extends Activity {
             public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
                 if (fileCallback != null) fileCallback.onReceiveValue(null);
                 fileCallback = callback;
+                boolean audio = false;
+                for (String t : params.getAcceptTypes()) {
+                    if (t != null && (t.startsWith("audio") || t.startsWith("video"))) audio = true;
+                }
                 Intent i = new Intent(Intent.ACTION_GET_CONTENT);
                 i.addCategory(Intent.CATEGORY_OPENABLE);
-                i.setType("audio/*");
-                i.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"audio/*", "video/*"});
+                if (audio) {
+                    i.setType("audio/*");
+                    i.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"audio/*", "video/*"});
+                } else {
+                    i.setType("*/*"); // export de vocabulaire (.json)
+                }
                 try {
-                    startActivityForResult(Intent.createChooser(i, "Choisir un enregistrement"), REQ_FILE);
+                    startActivityForResult(Intent.createChooser(i, audio ? "Choisir un enregistrement" : "Choisir un fichier"), REQ_FILE);
                 } catch (Exception e) {
                     fileCallback = null;
                     return false;
