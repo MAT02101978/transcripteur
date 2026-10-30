@@ -1,0 +1,672 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Transcripteur</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#111719">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Mise en page : une colonne type dictaphone — bande d'enregistrement en haut, transcription en dessous, historique en bas. */
+:root{
+  --bg:#eceff0; --surface:#fafbfb; --fg:#162023; --muted:#5a696c; --line:#d2d9da;
+  --accent:#1e6a68; --accent-fg:#ffffff; --rec:#d1372b; --tape:#dfe5e5; --wave:#1e6a68;
+  --display:"Familjen Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --read:"Source Serif 4", Georgia, "Times New Roman", serif;
+  --mono:"JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#101618; --surface:#172023; --fg:#e4ebea; --muted:#8fa1a2; --line:#273437;
+  --accent:#5dbdb3; --accent-fg:#0d1a1a; --rec:#ff5b4e; --tape:#0c1213; --wave:#5dbdb3; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#101618; --surface:#172023; --fg:#e4ebea; --muted:#8fa1a2; --line:#273437;
+  --accent:#5dbdb3; --accent-fg:#0d1a1a; --rec:#ff5b4e; --tape:#0c1213; --wave:#5dbdb3; color-scheme:dark}
+
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.5 var(--display);
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+  -webkit-tap-highlight-color:transparent}
+.wrap{max-width:640px;margin:0 auto;padding-block:12px 40px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  display:flex;flex-direction:column;gap:18px}
+button,select,input{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+h1{font-size:22px;font-weight:700;letter-spacing:-.01em;margin:0}
+.icon-btn{border:1px solid var(--line);background:var(--surface);border-radius:10px;width:40px;height:40px;display:grid;place-items:center}
+.icon-btn svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8}
+
+/* Bande d'enregistrement */
+.deck{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:14px}
+.tape{position:relative;background:var(--tape);border-radius:10px;height:84px;overflow:hidden}
+.tape canvas{width:100%;height:100%;display:block}
+.tape .tc{position:absolute;left:10px;top:8px;font:600 13px var(--mono);font-variant-numeric:tabular-nums;color:var(--muted)}
+.tape .tc.on{color:var(--rec)}
+.controls{display:flex;align-items:center;gap:14px}
+.rec-btn{width:72px;height:72px;border-radius:50%;border:3px solid var(--rec);background:transparent;display:grid;place-items:center;flex:none;transition:transform .15s}
+.rec-btn:active{transform:scale(.95)}
+.rec-btn i{display:block;width:44px;height:44px;border-radius:50%;background:var(--rec);transition:all .2s}
+.rec-btn.on i{width:26px;height:26px;border-radius:5px}
+.ctl-text{display:flex;flex-direction:column;gap:6px;min-width:0;flex:1}
+.ctl-label{font-weight:700;font-size:17px}
+.status{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.dot.ready{background:var(--accent)} .dot.busy{background:#d99a1e} .dot.err{background:var(--rec)}
+.bar{height:4px;background:var(--line);border-radius:2px;overflow:hidden}
+.bar>span{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+.import{display:flex;gap:10px;flex-wrap:wrap}
+.btn{border:1px solid var(--line);background:transparent;border-radius:10px;padding:10px 14px;font-weight:500;display:inline-flex;align-items:center;gap:8px;min-height:44px}
+.btn.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+.btn svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8}
+.btn:disabled{opacity:.5;cursor:default}
+
+/* Transcription */
+.doc{background:var(--surface);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.doc-head{padding:14px 16px 10px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:2px}
+.doc-title{font-weight:700;font-size:16px;overflow-wrap:anywhere}
+.doc-meta{font-size:12px;color:var(--muted);font-family:var(--mono);font-variant-numeric:tabular-nums}
+.doc-body{padding:14px 16px;font-family:var(--read);font-size:17px;line-height:1.6;display:flex;flex-direction:column;gap:10px;min-height:120px}
+.seg{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:baseline}
+.seg time{font:12px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums;padding-top:2px}
+.seg p{margin:0;min-width:0;overflow-wrap:anywhere;outline:none;border-radius:4px}
+.seg p:focus{background:var(--tape)}
+.no-tc .seg{grid-template-columns:1fr} .no-tc .seg time{display:none}
+.pending{font-family:var(--display);font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px}
+.pending::before{content:"";width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(1turn)}}
+.empty{font-family:var(--display);color:var(--muted);font-size:14px}
+.doc-actions{display:flex;gap:8px;flex-wrap:wrap;padding:10px 16px 14px;border-top:1px solid var(--line)}
+.doc-actions .btn{padding:8px 12px;min-height:40px;font-size:14px}
+.btn.danger{color:var(--rec)}
+
+/* Historique */
+h2{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:6px 0 0;font-weight:700}
+.history{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;border-top:1px solid var(--line)}
+.history li button{width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--line);padding:12px 2px;display:grid;grid-template-columns:1fr auto;gap:2px 12px}
+.history .h-title{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.history .h-date{font:12px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.history .h-prev{grid-column:1/-1;font-family:var(--read);color:var(--muted);font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.history li.sel button{background:var(--surface)}
+
+/* Réglages */
+dialog{border:1px solid var(--line);border-radius:16px;background:var(--surface);color:var(--fg);padding:0;width:min(520px,calc(100vw - 32px))}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+.sheet{padding:18px;display:flex;flex-direction:column;gap:16px}
+.sheet h3{margin:0;font-size:18px}
+.field{display:flex;flex-direction:column;gap:6px}
+.field label,.field .lbl{font-size:13px;font-weight:700}
+.field small{color:var(--muted);font-size:12px;line-height:1.4}
+.field select{border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:10px;min-height:44px}
+.check{display:flex;align-items:center;gap:10px;font-size:14px}
+.check input{width:20px;height:20px;accent-color:var(--accent)}
+.sheet-foot{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;max-width:calc(100vw - 32px);z-index:20}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Transcripteur</h1>
+    <button class="icon-btn" id="openSettings" aria-label="Réglages">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    </button>
+  </header>
+
+  <section class="deck" aria-label="Enregistrement">
+    <div class="tape"><canvas id="wave"></canvas><span class="tc" id="timer">00:00</span></div>
+    <div class="controls">
+      <button class="rec-btn" id="recBtn" aria-label="Démarrer la dictée"><i></i></button>
+      <div class="ctl-text">
+        <span class="ctl-label" id="recLabel">Dicter</span>
+        <div class="status"><span class="dot" id="dot"></span><span id="statusText">Modèle non chargé</span></div>
+        <div class="bar" id="bar" hidden><span id="barFill"></span></div>
+      </div>
+    </div>
+    <div class="import">
+      <label class="btn" for="fileInput">
+        <svg viewBox="0 0 24 24"><path d="M12 15V3M7 8l5-5 5 5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>
+        Importer un fichier audio
+      </label>
+      <input type="file" id="fileInput" accept="audio/*,video/*,.m4a,.mp3,.wav,.ogg,.opus,.aac,.webm,.mp4" hidden>
+      <button class="btn" id="loadBtn" hidden>Télécharger le modèle</button>
+    </div>
+  </section>
+
+  <article class="doc" id="doc" aria-live="polite">
+    <div class="doc-head">
+      <span class="doc-title" id="docTitle">Aucune transcription</span>
+      <span class="doc-meta" id="docMeta">Appuyez sur le bouton rouge pour dicter, ou importez un enregistrement.</span>
+    </div>
+    <div class="doc-body" id="docBody"><span class="empty">Le texte apparaît ici au fil de la dictée, phrase par phrase. Vous pouvez le corriger en touchant un passage.</span></div>
+    <div class="doc-actions" id="docActions" hidden>
+      <button class="btn" id="copyBtn">Copier</button>
+      <button class="btn" id="shareBtn">Partager</button>
+      <button class="btn" id="txtBtn">Exporter .txt</button>
+      <button class="btn danger" id="delBtn">Supprimer</button>
+    </div>
+  </article>
+
+  <section>
+    <h2>Historique</h2>
+    <ul class="history" id="history"></ul>
+    <p class="empty" id="historyEmpty">Rien pour l'instant.</p>
+  </section>
+</div>
+
+<dialog id="settings">
+  <form class="sheet" method="dialog">
+    <h3>Réglages</h3>
+    <div class="field">
+      <label for="setModel">Modèle Whisper</label>
+      <select id="setModel">
+        <option value="tiny">Rapide · tiny · ≈ 40 Mo</option>
+        <option value="base">Équilibré · base · ≈ 80 Mo</option>
+        <option value="small">Précis · small · ≈ 250 Mo</option>
+      </select>
+      <small>Téléchargé une seule fois, puis gardé sur le téléphone. « Précis » transcrit nettement mieux le français mais demande un téléphone récent.</small>
+    </div>
+    <div class="field">
+      <label for="setLang">Langue parlée</label>
+      <select id="setLang">
+        <option value="french">Français</option>
+        <option value="english">Anglais</option>
+        <option value="spanish">Espagnol</option>
+        <option value="german">Allemand</option>
+        <option value="italian">Italien</option>
+        <option value="">Détection automatique</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="setDevice">Calcul</label>
+      <select id="setDevice">
+        <option value="auto">Automatique (GPU si disponible)</option>
+        <option value="webgpu">GPU (WebGPU)</option>
+        <option value="wasm">Processeur</option>
+      </select>
+      <small id="deviceInfo">—</small>
+    </div>
+    <div class="field">
+      <span class="lbl">Affichage</span>
+      <label class="check"><input type="checkbox" id="setTc"> Afficher les minutages</label>
+      <label class="check"><input type="checkbox" id="setTcExport"> Inclure les minutages à l'export</label>
+    </div>
+    <div class="sheet-foot">
+      <button class="btn danger" type="button" id="clearCache">Effacer les modèles téléchargés</button>
+      <button class="btn primary" value="ok">Fermer</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" hidden></div>
+
+<script>
+'use strict';
+const $ = (s) => document.querySelector(s);
+const SR = 16000;
+const MODELS = {
+  tiny:  { id: 'onnx-community/whisper-tiny',  size: '≈ 40 Mo' },
+  base:  { id: 'onnx-community/whisper-base',  size: '≈ 80 Mo' },
+  small: { id: 'onnx-community/whisper-small', size: '≈ 250 Mo' },
+};
+
+/* ---------- Stockage local ---------- */
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (_) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (_) { return false; } },
+};
+const settings = Object.assign({ model: 'base', lang: 'french', device: 'auto', tc: true, tcExport: false }, store.get('tx.settings', {}));
+let sessions = store.get('tx.sessions', []);
+let shownId = sessions[0] ? sessions[0].id : null;
+function saveSettings() { store.set('tx.settings', settings); }
+function saveSessions() {
+  if (!store.set('tx.sessions', sessions)) toast("Stockage plein : supprimez d'anciennes transcriptions.");
+}
+
+/* ---------- Utilitaires ---------- */
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.hidden = false;
+  clearTimeout(toast._t); toast._t = setTimeout(() => { t.hidden = true; }, 2600);
+}
+function fmtTime(s) {
+  s = Math.max(0, Math.floor(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+  const mm = String(m).padStart(2, '0'), ss = String(x).padStart(2, '0');
+  return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+function fmtDate(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' }) + ' ' +
+         d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+}
+const NATIVE = window.AndroidBridge || null; // présent dans l'appli Android
+let wakeLock = null;
+async function keepAwake(on) {
+  if (NATIVE) { try { NATIVE.keepAwake(!!on); } catch (_) {} return; }
+  try {
+    if (on && !wakeLock && 'wakeLock' in navigator) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); }
+    if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
+  } catch (_) {}
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && (rec || busyCount)) keepAwake(true); });
+
+/* ---------- Moteur (worker Whisper) ---------- */
+const worker = new Worker(NATIVE ? 'worker.js?local=1' : 'worker.js', { type: 'module' });
+const engine = { state: 'idle', device: null, error: '' };
+const files = new Map();
+let loadCb = null, loadPromise = null, reqSeq = 0;
+const pendingReq = new Map();
+
+worker.onmessage = (e) => {
+  const m = e.data;
+  if (m.type === 'progress') {
+    const p = m.p;
+    if (p.status === 'progress' && p.file) { files.set(p.file, { loaded: p.loaded || 0, total: p.total || 0 }); updateStatus(); }
+  } else if (m.type === 'ready') {
+    if (loadCb) { loadCb.res(); loadCb = null; }
+  } else if (m.type === 'result' || m.type === 'error') {
+    if (m.id != null && pendingReq.has(m.id)) {
+      const r = pendingReq.get(m.id); pendingReq.delete(m.id);
+      m.type === 'result' ? r.res(m.text) : r.rej(new Error(m.message));
+    } else if (m.type === 'error' && loadCb) { loadCb.rej(new Error(m.message)); loadCb = null; }
+  }
+};
+worker.onerror = (e) => {
+  const msg = "Le moteur n'a pas pu démarrer (" + (e.message || 'erreur de chargement') + ').';
+  if (loadCb) { loadCb.rej(new Error(msg)); loadCb = null; }
+};
+
+async function pickDevice() {
+  if (settings.device !== 'auto') return settings.device;
+  try { if (navigator.gpu && await navigator.gpu.requestAdapter()) return 'webgpu'; } catch (_) {}
+  return 'wasm';
+}
+function workerLoad(device) {
+  return new Promise((res, rej) => {
+    loadCb = { res, rej }; files.clear();
+    worker.postMessage({ type: 'load', model: MODELS[settings.model].id, device });
+  });
+}
+function loadModel() {
+  if (loadPromise) return loadPromise;
+  engine.state = 'loading'; engine.error = ''; updateStatus();
+  loadPromise = (async () => {
+    let dev = await pickDevice();
+    try { await workerLoad(dev); }
+    catch (err) {
+      if (dev !== 'webgpu') throw err;
+      dev = 'wasm'; await workerLoad(dev); // repli processeur si le GPU échoue
+    }
+    engine.device = dev; engine.state = 'ready';
+    store.set('tx.loaded.' + settings.model, true);
+    updateStatus();
+  })();
+  loadPromise.catch((err) => { loadPromise = null; engine.state = 'error'; engine.error = err.message; updateStatus(); });
+  return loadPromise;
+}
+function resetModel() { loadPromise = null; engine.state = 'idle'; engine.device = null; updateStatus(); }
+
+function runWhisper(audio) {
+  return new Promise((res, rej) => {
+    const id = ++reqSeq; pendingReq.set(id, { res, rej });
+    worker.postMessage({ type: 'run', id, audio, lang: settings.lang || null }, [audio.buffer]);
+  });
+}
+
+// Phrases fantômes que Whisper produit sur du silence ou du bruit
+const HALLU = [/amara\.org/i, /sous-titr/i, /merci d'avoir regard/i, /abonnez-vous/i, /thanks? for watching/i];
+function cleanText(t) {
+  t = (t || '').replace(/\s+/g, ' ').trim();
+  if (!t || /^[\s.,!?…\-–—♪*]*$/.test(t)) return '';
+  if (t.length < 90 && HALLU.some((r) => r.test(t))) return '';
+  return t;
+}
+
+/* ---------- File d'attente de transcription ---------- */
+let queue = Promise.resolve();
+let busyCount = 0;
+let fileJob = null; // { done, total }
+
+function enqueue(sess, seg) {
+  busyCount++; updateStatus(); renderDoc();
+  keepAwake(true);
+  queue = queue.then(async () => {
+    try {
+      await loadModel();
+      const text = cleanText(await runWhisper(seg.audio));
+      if (text) { sess.segments.push({ t: seg.t, text }); saveSessions(); }
+    } catch (err) {
+      toast('Échec sur un passage : ' + err.message);
+    } finally {
+      busyCount--;
+      if (fileJob && fileJob.sessId === sess.id) fileJob.done++;
+      if (!busyCount) { fileJob = null; if (!rec) keepAwake(false); }
+      updateStatus(); renderDoc(); renderHistory();
+    }
+  });
+}
+
+/* ---------- Découpage audio sur les silences ---------- */
+const FR = 320; // trames de 20 ms
+function frameRms(a, i) { let s = 0; const e = Math.min(i + FR, a.length); for (let k = i; k < e; k++) s += a[k] * a[k]; return Math.sqrt(s / Math.max(1, e - i)); }
+function quietestCut(a, from, to) {
+  const rms = []; for (let i = from; i + FR <= to; i += FR) rms.push(frameRms(a, i));
+  const W = 15; let best = to, bestE = Infinity;
+  for (let k = 0; k + W <= rms.length; k++) { let e = 0; for (let j = k; j < k + W; j++) e += rms[j]; if (e < bestE) { bestE = e; best = from + (k + (W >> 1)) * FR; } }
+  return best;
+}
+function maxRms(a, from, to) { let m = 0; for (let i = from; i < to; i += FR) m = Math.max(m, frameRms(a, i)); return m; }
+
+/* ---------- Dictée en direct ---------- */
+let rec = null, liveSessId = null;
+const waveHist = [];
+
+async function startRec() {
+  if (!navigator.mediaDevices || !window.AudioWorkletNode) { toast("Ce navigateur ne permet pas l'accès au micro."); return; }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  } catch (_) { toast("Accès au micro refusé. Autorisez-le dans les réglages du site."); return; }
+  loadModel();
+  const ctx = new AudioContext({ sampleRate: SR });
+  await ctx.audioWorklet.addModule('pcm-worklet.js');
+  const src = ctx.createMediaStreamSource(stream);
+  const node = new AudioWorkletNode(ctx, 'pcm-tap');
+  const mute = ctx.createGain(); mute.gain.value = 0;
+  src.connect(node); node.connect(mute); mute.connect(ctx.destination);
+  const sess = newSession('Dictée');
+  liveSessId = sess.id;
+  rec = { stream, ctx, node, sess, chunks: [], len: 0, start: 0, total: 0, floor: 0.01, silentMs: 0, voiced: false, t0: Date.now() };
+  node.port.onmessage = (e) => onPcm(e.data);
+  waveHist.length = 0;
+  keepAwake(true);
+  updateRecUi(); renderDoc(); renderHistory();
+  tick();
+}
+
+function onPcm(c) {
+  const r = rec; if (!r) return;
+  r.chunks.push(c); r.len += c.length; r.total += c.length;
+  let s = 0; for (let i = 0; i < c.length; i++) s += c[i] * c[i];
+  const rms = Math.sqrt(s / c.length);
+  r.floor = rms < r.floor ? r.floor * 0.95 + rms * 0.05 : r.floor * 1.0008;
+  const thr = Math.max(0.006, r.floor * 3);
+  if (rms < thr) r.silentMs += c.length / SR * 1000; else { r.silentMs = 0; r.voiced = true; }
+  waveHist.push(rms);
+  const dur = r.len / SR;
+  if (dur >= 3 && r.silentMs >= 650) flush(false);
+  else if (dur >= 25) flush(true);
+}
+
+function flush(cutAtQuiet) {
+  const r = rec; if (!r || !r.len) return;
+  const all = new Float32Array(r.len); let o = 0; for (const c of r.chunks) { all.set(c, o); o += c.length; }
+  let end = all.length;
+  if (cutAtQuiet && all.length > 8 * SR) end = quietestCut(all, all.length - 6 * SR, all.length);
+  const seg = all.slice(0, end), rest = all.slice(end);
+  const t = r.start / SR;
+  r.start += end; r.chunks = rest.length ? [rest] : []; r.len = rest.length;
+  const voiced = r.voiced; r.voiced = false; r.silentMs = 0;
+  if (voiced && maxRms(seg, 0, seg.length) > 0.008) enqueue(r.sess, { audio: seg, t });
+}
+
+async function stopRec() {
+  const r = rec; if (!r) return;
+  flush(false);
+  rec = null;
+  r.node.port.onmessage = null;
+  r.stream.getTracks().forEach((t) => t.stop());
+  try { await r.ctx.close(); } catch (_) {}
+  r.sess.duration = r.total / SR; saveSessions();
+  if (!busyCount) keepAwake(false);
+  updateRecUi(); renderDoc(); renderHistory();
+  if (!r.sess.segments.length && !busyCount) toast('Aucune parole détectée.');
+}
+
+/* ---------- Import de fichier ---------- */
+async function decodeFile(file) {
+  const ab = await file.arrayBuffer();
+  const tmp = new AudioContext();
+  let buf;
+  try { buf = await tmp.decodeAudioData(ab); } finally { tmp.close(); }
+  const off = new OfflineAudioContext(1, Math.ceil(buf.duration * SR), SR);
+  const s = off.createBufferSource(); s.buffer = buf; s.connect(off.destination); s.start();
+  return (await off.startRendering()).getChannelData(0);
+}
+
+async function importFile(file) {
+  if (rec) { toast("Arrêtez la dictée avant d'importer."); return; }
+  loadModel();
+  $('#statusText').textContent = 'Lecture du fichier…';
+  let pcm;
+  try { pcm = await decodeFile(file); }
+  catch (_) { toast("Format non lu par le téléphone. Essayez m4a, mp3, wav, ogg ou opus."); updateStatus(); return; }
+  const sess = newSession(file.name.replace(/\.[^.]+$/, ''));
+  sess.duration = pcm.length / SR;
+  const MAX = 28 * SR, SEARCH = 6 * SR, segs = [];
+  let s = 0;
+  while (s < pcm.length) {
+    if (pcm.length - s <= MAX) { segs.push([s, pcm.length]); break; }
+    const cut = quietestCut(pcm, s + MAX - SEARCH, s + MAX); segs.push([s, cut]); s = cut;
+  }
+  const kept = segs.filter(([a, b]) => maxRms(pcm, a, b) > 0.005);
+  fileJob = { sessId: sess.id, done: 0, total: kept.length };
+  saveSessions(); renderHistory();
+  if (!kept.length) { fileJob = null; toast('Aucune parole détectée dans ce fichier.'); updateStatus(); renderDoc(); return; }
+  for (const [a, b] of kept) enqueue(sess, { audio: pcm.slice(a, b), t: a / SR });
+}
+
+/* ---------- Sessions ---------- */
+function newSession(source) {
+  const sess = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), date: new Date().toISOString(), source, segments: [], duration: 0 };
+  sessions.unshift(sess); shownId = sess.id; saveSessions();
+  return sess;
+}
+function shown() { return sessions.find((s) => s.id === shownId) || null; }
+function sessionText(sess, withTc) {
+  return sess.segments.map((g) => (withTc ? `[${fmtTime(g.t)}] ` : '') + g.text).join(withTc ? '\n' : '\n\n');
+}
+
+/* ---------- Rendu ---------- */
+function updateStatus() {
+  const dot = $('#dot'), st = $('#statusText'), bar = $('#bar'), fill = $('#barFill');
+  dot.className = 'dot'; bar.hidden = true;
+  const m = MODELS[settings.model];
+  if (engine.state === 'loading') {
+    let l = 0, t = 0; files.forEach((f) => { l += f.loaded; t += f.total; });
+    const pct = t ? Math.round(l / t * 100) : 0;
+    dot.classList.add('busy');
+    st.textContent = store.get('tx.loaded.' + settings.model, false) ? 'Préparation du modèle…' : `Téléchargement du modèle… ${pct} %`;
+    bar.hidden = false; fill.style.width = pct + '%';
+  } else if (engine.state === 'error') {
+    dot.classList.add('err'); st.textContent = 'Erreur : ' + engine.error;
+  } else if (busyCount) {
+    dot.classList.add('busy');
+    if (fileJob) { st.textContent = `Transcription… ${fileJob.done}/${fileJob.total}`; bar.hidden = false; fill.style.width = Math.round(fileJob.done / fileJob.total * 100) + '%'; }
+    else st.textContent = busyCount > 1 ? `Transcription… ${busyCount} passages en attente` : 'Transcription…';
+  } else if (engine.state === 'ready') {
+    dot.classList.add('ready'); st.textContent = `Prêt · ${engine.device === 'webgpu' ? 'GPU' : 'processeur'} · hors ligne`;
+  } else {
+    st.textContent = store.get('tx.loaded.' + settings.model, false) ? 'Modèle en mémoire, chargé au premier usage' : `Modèle à télécharger (${m.size}, une seule fois)`;
+  }
+  const cached = store.get('tx.loaded.' + settings.model, false);
+  $('#loadBtn').hidden = !(engine.state === 'error' || (engine.state === 'idle' && !cached));
+  $('#loadBtn').textContent = engine.state === 'error' ? 'Réessayer' : 'Télécharger le modèle';
+}
+
+function updateRecUi() {
+  const on = !!rec;
+  $('#recBtn').classList.toggle('on', on);
+  $('#recBtn').setAttribute('aria-label', on ? 'Arrêter la dictée' : 'Démarrer la dictée');
+  $('#recLabel').textContent = on ? 'Arrêter' : 'Dicter';
+  $('#timer').classList.toggle('on', on);
+  if (!on) $('#timer').textContent = '00:00';
+}
+
+function renderDoc() {
+  const sess = shown();
+  const body = $('#docBody');
+  body.classList.toggle('no-tc', !settings.tc);
+  $('#doc').classList.toggle('no-tc', !settings.tc);
+  if (!sess) {
+    $('#docTitle').textContent = 'Aucune transcription';
+    $('#docMeta').textContent = 'Appuyez sur le bouton rouge pour dicter, ou importez un enregistrement.';
+    $('#docActions').hidden = true;
+    return;
+  }
+  $('#docTitle').textContent = sess.source;
+  const words = sess.segments.reduce((n, g) => n + g.text.split(/\s+/).length, 0);
+  $('#docMeta').textContent = `${fmtDate(sess.date)} · ${fmtTime(sess.duration || (rec && rec.sess === sess ? rec.total / SR : 0))} · ${words} mots`;
+  // Ne pas écraser un passage en cours de correction
+  if (body.contains(document.activeElement) && document.activeElement.tagName === 'P') return;
+  body.innerHTML = '';
+  sess.segments.forEach((g, i) => {
+    const row = document.createElement('div'); row.className = 'seg';
+    const tm = document.createElement('time'); tm.textContent = fmtTime(g.t);
+    const p = document.createElement('p'); p.textContent = g.text; p.contentEditable = 'true'; p.spellcheck = true;
+    p.addEventListener('blur', () => {
+      const v = p.textContent.trim();
+      if (!v) sess.segments.splice(i, 1); else g.text = v;
+      saveSessions(); renderDoc(); renderHistory();
+    });
+    row.append(tm, p); body.append(row);
+  });
+  const working = busyCount && (fileJob ? fileJob.sessId === sess.id : liveSessId === sess.id);
+  if (working) { const d = document.createElement('div'); d.className = 'pending'; d.textContent = 'Transcription en cours…'; body.append(d); }
+  else if (rec && rec.sess === sess && !sess.segments.length) { const d = document.createElement('div'); d.className = 'pending'; d.textContent = "À l'écoute…"; body.append(d); }
+  else if (!sess.segments.length) { const d = document.createElement('span'); d.className = 'empty'; d.textContent = 'Aucun texte.'; body.append(d); }
+  $('#docActions').hidden = !sess.segments.length;
+}
+
+function renderHistory() {
+  const ul = $('#history'); ul.innerHTML = '';
+  $('#historyEmpty').hidden = sessions.length > 0;
+  sessions.forEach((s) => {
+    const li = document.createElement('li'); if (s.id === shownId) li.className = 'sel';
+    const b = document.createElement('button');
+    const prev = s.segments.map((g) => g.text).join(' ');
+    b.innerHTML = '<span class="h-title"></span><span class="h-date"></span><span class="h-prev"></span>';
+    b.children[0].textContent = s.source;
+    b.children[1].textContent = fmtDate(s.date);
+    b.children[2].textContent = prev || '—';
+    b.addEventListener('click', () => { shownId = s.id; renderDoc(); renderHistory(); $('#doc').scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+    li.append(b); ul.append(li);
+  });
+}
+
+/* ---------- Visualisation de la bande ---------- */
+const cv = $('#wave'), g2 = cv.getContext('2d');
+function drawWave() {
+  const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== w * dpr || cv.height !== h * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
+  g2.setTransform(dpr, 0, 0, dpr, 0, 0); g2.clearRect(0, 0, w, h);
+  const css = getComputedStyle(document.documentElement);
+  const col = rec ? css.getPropertyValue('--rec').trim() : css.getPropertyValue('--wave').trim();
+  const step = 3, n = Math.floor(w / step), mid = h / 2 + 8, amp = h / 2 - 14;
+  // ~ 4 blocs worklet par barre
+  const bars = []; for (let i = waveHist.length - 1; i >= 0 && bars.length < n; i -= 4) { let m = 0; for (let k = 0; k < 4 && i - k >= 0; k++) m = Math.max(m, waveHist[i - k]); bars.push(m); }
+  g2.fillStyle = col;
+  bars.forEach((v, j) => {
+    const x = w - (j + 1) * step, a = Math.max(1, Math.min(amp, Math.sqrt(v) * amp * 2.2));
+    g2.globalAlpha = 0.35 + 0.65 * (1 - j / n);
+    g2.fillRect(x, mid - a, 2, a * 2);
+  });
+  g2.globalAlpha = 1;
+  if (!bars.length) { g2.fillStyle = css.getPropertyValue('--line').trim(); g2.fillRect(0, mid - 0.5, w, 1); }
+}
+function tick() {
+  drawWave();
+  if (rec) { $('#timer').textContent = fmtTime(rec.total / SR); requestAnimationFrame(tick); }
+}
+
+/* ---------- Actions ---------- */
+$('#recBtn').addEventListener('click', () => { rec ? stopRec() : startRec(); });
+$('#fileInput').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importFile(f); });
+$('#loadBtn').addEventListener('click', () => loadModel());
+
+$('#copyBtn').addEventListener('click', async () => {
+  const s = shown(); if (!s) return;
+  if (NATIVE) { toast(NATIVE.copy(sessionText(s, settings.tcExport)) ? 'Texte copié' : 'Copie impossible'); return; }
+  try { await navigator.clipboard.writeText(sessionText(s, settings.tcExport)); toast('Texte copié'); }
+  catch (_) { toast('Copie impossible : sélectionnez le texte à la main.'); }
+});
+$('#shareBtn').addEventListener('click', async () => {
+  const s = shown(); if (!s) return;
+  const text = sessionText(s, settings.tcExport);
+  if (NATIVE) { NATIVE.share(s.source, text); return; }
+  if (navigator.share) { try { await navigator.share({ title: s.source, text }); } catch (_) {} }
+  else { try { await navigator.clipboard.writeText(text); toast('Partage indisponible : texte copié'); } catch (_) {} }
+});
+$('#txtBtn').addEventListener('click', () => {
+  const s = shown(); if (!s) return;
+  const d = new Date(s.date);
+  const fname = `${s.source.replace(/[\\/:*?"<>|]+/g, '_')}_${d.toISOString().slice(0, 10)}.txt`;
+  if (NATIVE) {
+    toast(NATIVE.saveText(fname, sessionText(s, settings.tcExport) + '\n') ? 'Enregistré dans Téléchargements/Transcripteur' : "Échec de l'enregistrement");
+    return;
+  }
+  const blob = new Blob([sessionText(s, settings.tcExport) + '\n'], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = fname;
+  document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+});
+let delArmed = false;
+$('#delBtn').addEventListener('click', () => {
+  const s = shown(); if (!s) return;
+  if (rec && rec.sess === s) { toast("Arrêtez la dictée d'abord."); return; }
+  if (!delArmed) { delArmed = true; $('#delBtn').textContent = 'Confirmer la suppression'; setTimeout(() => { delArmed = false; $('#delBtn').textContent = 'Supprimer'; }, 3000); return; }
+  delArmed = false; $('#delBtn').textContent = 'Supprimer';
+  sessions = sessions.filter((x) => x.id !== s.id); shownId = sessions[0] ? sessions[0].id : null;
+  saveSessions(); renderDoc(); renderHistory(); toast('Transcription supprimée');
+});
+
+/* ---------- Réglages ---------- */
+const dlg = $('#settings');
+$('#openSettings').addEventListener('click', async () => {
+  $('#setModel').value = settings.model; $('#setLang').value = settings.lang; $('#setDevice').value = settings.device;
+  $('#setTc').checked = settings.tc; $('#setTcExport').checked = settings.tcExport;
+  let gpu = false; try { gpu = !!(navigator.gpu && await navigator.gpu.requestAdapter()); } catch (_) {}
+  $('#deviceInfo').textContent = (gpu ? 'WebGPU disponible sur ce téléphone.' : "WebGPU indisponible : le calcul se fera sur le processeur, plus lentement.") +
+    (engine.device ? ` En cours : ${engine.device === 'webgpu' ? 'GPU' : 'processeur'}.` : '');
+  dlg.showModal();
+});
+$('#setModel').addEventListener('change', (e) => {
+  if (busyCount || rec) { toast('Attendez la fin de la transcription.'); e.target.value = settings.model; return; }
+  settings.model = e.target.value; saveSettings(); resetModel();
+});
+$('#setDevice').addEventListener('change', (e) => {
+  if (busyCount || rec) { toast('Attendez la fin de la transcription.'); e.target.value = settings.device; return; }
+  settings.device = e.target.value; saveSettings(); resetModel();
+});
+$('#setLang').addEventListener('change', (e) => { settings.lang = e.target.value; saveSettings(); });
+$('#setTc').addEventListener('change', (e) => { settings.tc = e.target.checked; saveSettings(); renderDoc(); });
+$('#setTcExport').addEventListener('change', (e) => { settings.tcExport = e.target.checked; saveSettings(); });
+let clearArmed = false;
+$('#clearCache').addEventListener('click', async () => {
+  if (busyCount || rec) { toast('Attendez la fin de la transcription.'); return; }
+  if (!clearArmed) { clearArmed = true; $('#clearCache').textContent = 'Confirmer'; setTimeout(() => { clearArmed = false; $('#clearCache').textContent = 'Effacer les modèles téléchargés'; }, 3000); return; }
+  clearArmed = false; $('#clearCache').textContent = 'Effacer les modèles téléchargés';
+  try { await caches.delete('transformers-cache'); } catch (_) {}
+  Object.keys(MODELS).forEach((k) => { try { localStorage.removeItem('tx.loaded.' + k); } catch (_) {} });
+  resetModel(); toast('Modèles effacés');
+});
+
+/* ---------- Démarrage ---------- */
+if (!NATIVE && 'serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+window.addEventListener('resize', drawWave);
+updateStatus(); updateRecUi(); renderDoc(); renderHistory(); drawWave();
+// Si le modèle a déjà été téléchargé, on le prépare en arrière-plan
+if (store.get('tx.loaded.' + settings.model, false)) loadModel();
+</script>
+</body>
+</html>

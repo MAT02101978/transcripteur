@@ -1,0 +1,35 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'fr.faudemer.transcripteur'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'fr.faudemer.transcripteur'
+        minSdk 29
+        targetSdk 35
+        versionCode 1
+        versionName '1.0'
+    }
+    // Clé de signature locale (générée par build.sh) : garder le même fichier pour les mises à jour
+    signingConfigs {
+        release {
+            storeFile file('../transcripteur.jks')
+            storePassword 'transcripteur'
+            keyAlias 'transcripteur'
+            keyPassword 'transcripteur'
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+    androidResources {
+        noCompress 'wasm', 'mjs', 'js'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
