@@ -68,6 +68,29 @@
     if (!MODELS[settings.model]) settings.model = 'small';
     let corrections = parseCorrections(settings.corrections);
     function saveSettings() { store.set(KEY + '.settings', settings); }
+    const GUARD = KEY + '.inflight';
+    function guardOn(what) { store.set(GUARD, { what, model: settings.model, device: engine.device || settings.device, t: Date.now() }); }
+    function guardOff() { store.del(GUARD); }
+    // L'appli s'est arrêtée pendant une dictée : on repasse sur un réglage plus sûr
+    let crashNotice = '';
+    (function recoverFromCrash() {
+      const g = store.get(GUARD, null); if (!g) return;
+      store.del(GUARD);
+      if (Date.now() - (g.t || 0) > 24 * 3600 * 1000) return;
+      if (g.device === 'webgpu' || settings.device === 'webgpu') {
+        settings.device = 'wasm';
+        crashNotice = "La dictée a interrompu l'application. Calcul repassé sur le processeur.";
+      } else if (settings.model === 'turbo') {
+        settings.model = 'small';
+        crashNotice = "La dictée a interrompu l'application (mémoire insuffisante). Modèle repassé en « Précis ».";
+      } else if (settings.model === 'small') {
+        settings.model = 'base';
+        crashNotice = "La dictée a interrompu l'application (mémoire insuffisante). Modèle repassé en « Rapide ».";
+      } else {
+        crashNotice = "La dictée a interrompu l'application. Si cela se reproduit, signalez-le.";
+      }
+      store.set(KEY + '.settings', settings);
+    })();
     const cachedKey = (m) => KEY + '.loaded.' + m;
     const isCached = () => store.get(cachedKey(settings.model), false) || (opts.legacySettingsKey && store.get('tx.loaded.' + settings.model, false));
 
@@ -120,7 +143,13 @@
     function emitStatus() { emit('status', status()); }
 
     async function hasWebGPU() { try { return !!(navigator.gpu && await navigator.gpu.requestAdapter()); } catch (_) { return false; } }
-    async function pickDevice() { if (settings.device !== 'auto') return settings.device; return (await hasWebGPU()) ? 'webgpu' : 'wasm'; }
+    // Dans la WebView Android, WebGPU est instable (un plantage graphique ferme toute l'appli) : processeur par défaut
+    const inWebView = !!native || /; wv\)/.test(navigator.userAgent);
+    async function pickDevice() {
+      if (settings.device !== 'auto') return settings.device;
+      if (inWebView) return 'wasm';
+      return (await hasWebGPU()) ? 'webgpu' : 'wasm';
+    }
     function workerLoad(device) {
       return new Promise((res, rej) => {
         loadCb = { res, rej }; files.clear();
@@ -133,13 +162,15 @@
       engine.state = 'loading'; engine.error = ''; emitStatus();
       loadPromise = (async () => {
         let dev = await pickDevice();
+        guardOn('load');
         try { await workerLoad(dev); }
         catch (err) { if (dev !== 'webgpu') throw err; dev = 'wasm'; await workerLoad(dev); } // repli processeur
         engine.device = dev; engine.state = 'ready';
+        if (!busy) guardOff();
         store.set(cachedKey(settings.model), true);
         emitStatus();
       })();
-      loadPromise.catch((err) => { loadPromise = null; engine.state = 'error'; engine.error = err.message; emitStatus(); });
+      loadPromise.catch((err) => { guardOff(); loadPromise = null; engine.state = 'error'; engine.error = err.message; emitStatus(); });
       return loadPromise;
     }
     function resetModel() { loadPromise = null; engine.state = 'idle'; engine.device = null; emitStatus(); }
@@ -186,12 +217,14 @@
           await loadModel();
           const lex = fullLexicon(job.lexicon);
           const prev = typeof job.previous === 'function' ? job.previous() : (job.previous || '');
+          guardOn('run');
           const text = clean(await run(job.audio, lex, prev), lex);
           if (text) job.onText(text, job.t);
         } catch (err) {
           notify('Échec sur un passage : ' + err.message);
         } finally {
           busy--;
+          if (!busy) guardOff();
           if (fileJob && job.file) fileJob.done++;
           if (!busy) { fileJob = null; if (!mic) keepAwake(false); }
           emitStatus();
@@ -552,7 +585,8 @@
       dlg.showModal();
     }
 
-    if (opts.preload !== false && isCached()) loadModel();
+    if (crashNotice) setTimeout(() => notify(crashNotice), 800);
+    if (opts.preload !== false && isCached() && !crashNotice) loadModel();
 
     return {
       MODELS, DEFAULT_LEXICON, settings, saveSettings, status, on, notify,
